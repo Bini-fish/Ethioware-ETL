@@ -1,0 +1,114 @@
+---
+alwaysApply: true
+---
+
+---
+description: Ethioware Medallion GCP pipeline rules and context
+alwaysApply: true
+---
+
+# Ethioware EdTech – GCP Medallion Pipeline
+
+## Project Context
+
+- Ethioware is an **EdTech initiative** running 2‑month cohorts in **Engineering, Software Engineering, Medicine, and Law**.
+- The goal is a **GCP Medallion architecture** (Bronze → Silver → Gold) for:
+  - **Trainings** (registrations, scores, Khan Academy / future learning platform activity, feedback)
+  - **Marketing & Brand Reach** (YouTube, LinkedIn, website analytics)
+- This project reuses patterns from `Household-Data-Analysis-Real-Time-GCP-Pipeline`, but with:
+  - Identity management and PII separation
+  - Education-specific scoring
+  - Multi-role dashboards (admin, marketing, board, public)
+
+## Architecture Rules
+
+- **Region**: Prefer a region close to Ethiopia (e.g. `me-central1`), but be explicit and consistent. If a service isn’t available there, fall back to an EU region and document it.
+- **Bronze (Raw Landing)**
+  - GCS buckets organized by **domain and source** (e.g. trainings/forms, trainings/scores, trainings/feedback, marketing/youtube, marketing/linkedin).
+  - Bronze data is **as close to source as possible**: no renames, no type coercion beyond what’s needed to load.
+- **Silver (Standardized)**
+  - BigQuery tables with **stable schemas** and clear types.
+  - Cloud Functions only do **light ETL**: validation, parsing, and loading into Silver (plus bad-row logging).
+  - Use **_rejects** tables for records that fail validation, with reason codes.
+- **Gold (Analytics / Star Schema)**
+  - Only in BigQuery (SQL), not inside Cloud Functions.
+  - Use **dim/fact** modeling with clear grain and keys.
+  - Build **views** for scoring and dashboards instead of embedding logic in BI tools.
+
+## Identity & PII
+
+- The **canonical learner identifier** is `learner_id`, derived from email:
+  - Normalize emails before hashing: `trim`, `lowercase`, and keep the algorithm **stable** (e.g. SHA‑256).
+  - Do **not** change hashing strategy without a migration plan.
+- PII is stored only in a restricted dataset like `secure_core`:
+  - `secure_core.secure_id_map` links `learner_id` ↔ email/name and other PII.
+  - Analytical datasets (`silver_*`, `gold_*`, `dash_*`) should **not** contain direct emails or full names.
+- Only **Education Admins** can see PII; all dashboards use anonymized IDs or aggregated data.
+
+## Data Domains & Tables
+
+- **Trainings – Silver**
+  - `silver_trainings.registrations`: Google Forms/Sheets registrations (name, email, school, citizenship, grade, GPA, cohort, field(s), etc.).
+  - `silver_trainings.scores_raw`: CSV uploads of quiz scores + learning minutes + raw KA scores / future provider scores.
+  - `silver_trainings.ka_activity`: aggregate KA activity (total minutes, skills worked, mastered, etc.).
+  - `silver_trainings.feedback`: feedback text with seeded sentiment from existing CSVs; new rows use Cloud Natural Language API to get sentiment if missing.
+- **Trainings – Gold**
+  - `dim_learner`, `dim_cohort`, `dim_field`, `dim_institution`, `dim_date`.
+  - `bridge_learner_field`: supports learners enrolled in multiple fields (e.g. “Both” in November score sheet).
+  - `fact_scores`: quiz scores, KA/learning platform scores, learning minutes, normalized metrics.
+  - `fact_engagement`: engagement metrics derived from KA/future provider data.
+  - `fact_feedback`: text, sentiment, and feedback metadata (with `model_version` for sentiment).
+- **Marketing – Silver/Gold**
+  - Weekly YouTube and LinkedIn metrics, plus web analytics, standardized with UTC timestamps.
+  - Gold facts at **daily/weekly granularity** joined with `dim_date` and `dim_channel`.
+
+## Scoring Logic
+
+- Implement all scoring and ranking as **SQL in BigQuery**, not inside Cloud Functions.
+- Use **versioned views** for scoring logic (e.g. `gold_trainings.v_scores_v1`):
+  - KA-related scores and engagement composites.
+  - Relative % within cohort/field: always compute using `PARTITION BY cohort_id, field_id` and `MAX()` over that partition.
+- Do not hard-code specific denominators (like 155.5); they must be **derived from current cohort data**.
+
+## Cohorts, Fields, and Enrollment
+
+- New cohorts start roughly every **2 months**; capture them via `dim_cohort` with clear start/end dates.
+- Fields: at least **Engineering, Software Engineering, Medicine, Law**.
+- Learners can enroll in multiple fields:
+  - Avoid “dual enrollment” booleans; instead, rely on `bridge_learner_field`.
+  - Facts reference both `learner_id` and `field_id` (and `cohort_id` when relevant).
+
+## Ingestion & Frequency
+
+- **Trainings**
+  - Short term: registrations and scores mainly via **Forms/Sheets + CSV uploads**.
+  - Mid‑term: registration may use **Google Sheets API**, but keep the Bronze/Silver contracts stable.
+  - Cloud Functions are triggered by **GCS finalize** events and must be idempotent.
+- **Marketing**
+  - Aim for **weekly** ingestion from YouTube Data API and LinkedIn Marketing API.
+  - Until LinkedIn API access is ready, support **standardized CSV snapshots** with same target schema.
+- Always log to a **pipeline run log** with row counts, errors, and status.
+
+## Dashboards & Access
+
+- Build four main dashboard layers (Looker Studio or similar), backed by `dash_*` views:
+  - **Admin**: detailed learner-level metrics (still anonymized; join with PII only for restricted users).
+  - **Marketing**: aggregated-by-cohort and campaign/channel, no PII.
+  - **Board**: high-level KPIs and trends, no row-level data.
+  - **Public**: fully anonymized, high-level stats suitable for the website.
+- Any “top performer reveal” behavior must:
+  - Run only through authorized views.
+  - Avoid exposing more PII than necessary by default.
+
+## Implementation Principles
+
+- Prefer **BigQuery SQL** for heavy joins, scoring, and aggregations; keep Cloud Functions thin.
+- Use **partitioning** (by date) and **clustering** (by IDs such as learner_id, video_id) on large fact tables.
+- Always add tests or sanity checks for:
+  - Schema changes in Forms/Sheets/CSVs.
+  - Numeric parsing (e.g. `2,561.00` → 2561.00; reject if not parseable).
+  - Duplicate/blank rows (route to `_rejects` and do not double-count).
+- When expanding or refactoring, preserve:
+  - **Medallion boundaries** (Bronze/Silver/Gold),
+  - **Identity strategy** (learner_id via normalized email),
+  - **Role-based access** and PII constraints.
