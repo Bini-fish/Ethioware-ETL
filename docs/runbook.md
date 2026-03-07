@@ -4,6 +4,56 @@ Use this when operating the pipeline: where data lands, how runs are triggered, 
 
 ---
 
+## Pre–Sprint 2 verification (foundation check)
+
+Run these **before starting Sprint 2** to confirm everything so far works.
+
+### 1. BigQuery – tables exist and are queryable
+
+In BigQuery (Console or `bq`), run:
+
+```sql
+-- Should return 7 rows (one per table). Empty tables return cnt = 0.
+SELECT 'secure_core.secure_id_map' AS tbl, COUNT(*) AS cnt FROM `ethioware-etl.secure_core.secure_id_map`
+UNION ALL SELECT 'silver_trainings.pipeline_run_log', COUNT(*) FROM `ethioware-etl.silver_trainings.pipeline_run_log`
+UNION ALL SELECT 'silver_trainings.registrations_rejects', COUNT(*) FROM `ethioware-etl.silver_trainings.registrations_rejects`
+UNION ALL SELECT 'silver_trainings.scores_rejects', COUNT(*) FROM `ethioware-etl.silver_trainings.scores_rejects`
+UNION ALL SELECT 'silver_trainings.ka_activity_rejects', COUNT(*) FROM `ethioware-etl.silver_trainings.ka_activity_rejects`
+UNION ALL SELECT 'silver_trainings.feedback_rejects', COUNT(*) FROM `ethioware-etl.silver_trainings.feedback_rejects`
+UNION ALL SELECT 'gold_trainings.dim_date', COUNT(*) FROM `ethioware-etl.gold_trainings.dim_date`
+ORDER BY tbl;
+```
+
+Or check in the BigQuery Explorer: all of the above tables should be listed under their datasets. Empty tables are fine.
+
+### 2. GCS – buckets and prefixes
+
+In Cloud Shell or `gsutil`:
+
+```bash
+gsutil ls gs://ethioware-bronze-trainings/
+gsutil ls gs://ethioware-bronze-marketing/
+gsutil ls gs://ethioware-bronze-web/
+```
+
+You should see the buckets (and optionally prefixes like `forms/`, `scores/`, etc. after an upload). As Data Engineer you should be able to list and upload.
+
+### 3. IAM – role access
+
+- **Data Engineer:** In BigQuery, run any query (e.g. `SELECT 1`) and confirm you can see all datasets and run jobs.
+- **Education Admin:** Log in as that principal (or ask them to). In BigQuery they should see only `secure_core`, `silver_trainings`, `gold_trainings`, `dash_admin`. They should **not** see `silver_marketing`, `gold_marketing`, etc.
+- **BI/Marketing:** Log in as that principal. They should see only `silver_marketing`, `gold_marketing`, `dash_marketing`, `dash_board`.
+
+### 4. Docs and repo
+
+- `docs/architecture.md` – project ID, locations, dataset list match your GCP setup.
+- `docs/iam.md` – role-to-dataset mapping (§0) matches the roles you created.
+- `bq/sql/silver/` and `bq/sql/gold/` – DDL files present and reference `ethioware-etl`.
+
+If all of the above pass, you’re ready for Sprint 2 (Silver tables + Cloud Functions).
+
+---
+
 ## Ingestion triggers
 
 | Source | Bronze location | Trigger | Silver target |
