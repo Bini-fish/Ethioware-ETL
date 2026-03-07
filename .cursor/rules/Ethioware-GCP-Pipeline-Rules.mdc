@@ -89,6 +89,13 @@ alwaysApply: true
   - Until LinkedIn API access is ready, support **standardized CSV snapshots** with same target schema.
 - Always log to a **pipeline run log** with row counts, errors, and status.
 
+## IAM – Role-to-dataset mapping (canonical)
+
+- **Ethioware Data Engineer** (project-level): full BigQuery, GCS, Cloud Functions, Logging.
+- **Ethioware Education Admin** (dataset-level): `secure_core`, `silver_trainings`, `gold_trainings`, `dash_admin` only (student/PII).
+- **Ethioware BI Marketing** (dataset-level): `silver_marketing`, `gold_marketing`, `dash_marketing`, `dash_board` only (no trainings, no PII).
+- See **docs/iam.md** for full mapping and commands.
+
 ## Dashboards & Access
 
 - Build four main dashboard layers (Looker Studio or similar), backed by `dash_*` views:
@@ -113,3 +120,10 @@ alwaysApply: true
   - **Medallion boundaries** (Bronze/Silver/Gold),
   - **Identity strategy** (learner_id via normalized email),
   - **Role-based access** and PII constraints.
+
+## Confidentiality & repo safety (public-facing repo)
+
+- **Never** put real emails, API keys, service account keys, internal identifiers, or other confidential data in the repo (including in `docs/`, `.md` files, or code). The repo may be shared publicly.
+- IAM principals (user/group emails) are configured **outside** the repo: run `gcloud`/Console commands locally with real principals; do not commit them. Documentation uses **placeholders** only (e.g. `DATA_ENGINEER_EMAIL`, `EDUCATION_ADMIN_EMAIL`).
+- Secrets (e.g. for Cloud Functions) belong in Secret Manager or environment config that is **not** committed; reference them by name in code. Add `*.json` (key files), `.env`, and any local config with secrets to `.gitignore`.
+- When adding new docs or examples, use generic placeholders (e.g. `user@example.com`, `your-project-id`) so the repo stays safe to share.

@@ -62,4 +62,5 @@ Uploads trigger Cloud Functions (GCS finalize). Prefix determines which pipeline
 - **`bq/sql/gold/`** – DDL for Gold (`ddl_dim_date.sql`, `ddl_dimensions.sql`, `ddl_facts.sql`, `views_v_scores_v1.sql`, backfill scripts).
 - **`functions/`** – Cloud Functions per source (registrations, scores, ka_activity, feedback; later marketing, web).
 
-See **docs/IMPLEMENTATION-PLAN.md** for the full file checklist and sprint order.
+See **docs/IMPLEMENTATION-PLAN.md** for the full file checklist and sprint order.  
+See **docs/iam.md** for custom roles (Education Admin, Data Engineer, BI/Marketing) and project/dataset-level bindings.

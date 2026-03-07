@@ -28,7 +28,7 @@ Track what was done in this project so the same approach can be reused elsewhere
 - [x] **Cursor rules** – `.cursor/rules/` with Medallion, identity, PII, scoring rules.
 - [x] **Cursor skill** – `.cursor/skills/SKILL.md` for Ethioware ETL context so the agent follows the same patterns.
 - [ ] **GCP project and region** – Set project (e.g. Ethioware-ETL), region (e.g. me-central1), document fallbacks.
-- [ ] **IAM** – Roles for Education Admin, Data Engineer, BI/Marketing, Public.
+- [x] **IAM** – Custom roles (Ethioware Data Engineer, Education Admin, BI/Marketing); project-level for Data Engineer, dataset-level for Education Admin and BI/Marketing. No public access. See **docs/iam.md** for role-to-dataset mapping.
 
 **Reuse in next project:** Add rules and a skill for the new domain; keep .gitignore and docs in sync with actual sources.
 
