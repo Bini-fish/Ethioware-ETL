@@ -22,7 +22,9 @@ Track what was done in this project so the same approach can be reused elsewhere
 
 ## 2. Repo and governance
 
-- [x] **.gitignore** – Ignore reference/reusable repo (e.g. `Household-Data-Analysis-Real-Time-GCP-Pipeline/`) so it isn’t committed.
+- [x] **.gitignore** – Ignore reference/reusable repo (e.g. `Household-Data-Analysis-Real-Time-GCP-Pipeline/`) so it isn’t committed. **Datasets/** added so data assets stay local.
+- [x] **Datasets restructure** – Logical layout: **trainings/** (registration, feedback, scores, ka_activity, cohort, legacy), **marketing/** (linkedin, youtube, web_analytics), **reference/**, **archive/**; docs updated to new paths.
+- [x] **Repo override** – Local state committed and force-pushed to `origin/master`; remote reflects current files and structure.
 - [x] **Cursor rules** – `.cursor/rules/` with Medallion, identity, PII, scoring rules.
 - [x] **Cursor skill** – `.cursor/skills/SKILL.md` for Ethioware ETL context so the agent follows the same patterns.
 - [ ] **GCP project and region** – Set project (e.g. Ethioware-ETL), region (e.g. me-central1), document fallbacks.
@@ -77,10 +79,19 @@ Track what was done in this project so the same approach can be reused elsewhere
 
 ## 7. Next steps (implementation)
 
-1. Answer follow-up questions in `GOOGLE-FORMS-FORMATS.md`.
-2. Standardize forms (or ETL) per checklist in that doc.
-3. Sprint 1: GCS buckets, BigQuery datasets, IAM, `secure_core`, audit tables, `bq/sql` and `docs` skeleton.
-4. Sprint 2+: Silver DDL and Cloud Functions (registrations, scores, KA, feedback); then Gold and dashboards.
+**Immediate (Sprint 1 – Foundation)**  
+1. **GCP** – Create or select project (e.g. `Ethioware-ETL`), set region (e.g. `me-central1`), document in `docs/architecture.md`.  
+2. **Bronze** – Create GCS buckets: `ethioware-bronze-trainings` (prefixes: forms/, scores/, feedback/), `ethioware-bronze-marketing` (youtube/, linkedin/), `ethioware-bronze-web` (analytics/).  
+3. **BigQuery** – Create datasets: `secure_core`, `silver_trainings`, `silver_marketing`, `silver_web`, `gold_*`, `dash_*` (or single `dash`).  
+4. **Identity & audit** – DDL for `secure_core.secure_id_map`, `pipeline_run_log`, and Silver rejects tables; add `dim_date`.  
+5. **Repo skeleton** – Add `bq/sql/silver/`, `bq/sql/gold/` with DDL file placeholders; add `docs/architecture.md` and `docs/runbook.md`.  
+6. **IAM** – Define roles (Education Admin, Data Engineer, BI/Marketing) and apply least privilege per dataset.
+
+**Then (Sprint 2+)**  
+7. Answer follow-up questions in `GOOGLE-FORMS-FORMATS.md` (or document “ETL decides” for GPA, dedupe, timezone).  
+8. Silver DDL and Cloud Functions: registrations → scores → ka_activity → feedback (see `docs/IMPLEMENTATION-PLAN.md` §2).  
+9. Test with `Datasets/trainings/` and `Datasets/marketing/` files; backfill to Silver.  
+10. Gold layer (dim/fact/views) and scoring views; then marketing/web and dashboards.
 
 ---
 
