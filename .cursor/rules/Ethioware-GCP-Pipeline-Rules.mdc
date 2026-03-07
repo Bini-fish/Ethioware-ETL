@@ -48,10 +48,10 @@ alwaysApply: true
 ## Data Domains & Tables
 
 - **Trainings – Silver**
-  - `silver_trainings.registrations`: Google Forms/Sheets registrations (name, email, school, citizenship, grade, GPA, cohort, field(s), etc.).
+  - `silver_trainings.registrations`: **Microsoft Form** exports (one per program: Engineering, Medicine, SE, Law when added). Email2 → learner_id; **where_heard** mapped to standard category: **social_media**, **word_of_mouth**, **other**.
   - `silver_trainings.scores_raw`: CSV uploads of quiz scores + learning minutes + raw KA scores / future provider scores.
   - `silver_trainings.ka_activity`: aggregate KA activity (total minutes, skills worked, mastered, etc.).
-  - `silver_trainings.feedback`: feedback text with seeded sentiment from existing CSVs; new rows use Cloud Natural Language API to get sentiment if missing.
+  - `silver_trainings.feedback`: feedback text and sentiment; **Session Feedback Form** (expert rating) – **Rating**, **Rating2** exposed for **dashboard**; new rows use Cloud Natural Language API for sentiment if missing.
 - **Trainings – Gold**
   - `dim_learner`, `dim_cohort`, `dim_field`, `dim_institution`, `dim_date`.
   - `bridge_learner_field`: supports learners enrolled in multiple fields (e.g. “Both” in November score sheet).
@@ -59,7 +59,7 @@ alwaysApply: true
   - `fact_engagement`: engagement metrics derived from KA/future provider data.
   - `fact_feedback`: text, sentiment, and feedback metadata (with `model_version` for sentiment).
 - **Marketing – Silver/Gold**
-  - Weekly YouTube and LinkedIn metrics, plus web analytics, standardized with UTC timestamps.
+  - LinkedIn: followers, visitors, **competitor analytics** (Silver table with **competitor dimension** for future competitors; updated less frequently). Weekly YouTube and LinkedIn metrics; web analytics; UTC timestamps.
   - Gold facts at **daily/weekly granularity** joined with `dim_date` and `dim_channel`.
 
 ## Scoring Logic
@@ -81,7 +81,7 @@ alwaysApply: true
 ## Ingestion & Frequency
 
 - **Trainings**
-  - Short term: registrations and scores mainly via **Forms/Sheets + CSV uploads**.
+  - Short term: registrations via **Microsoft Form** (Excel export per program); scores via Sheets/CSV uploads.
   - Mid‑term: registration may use **Google Sheets API**, but keep the Bronze/Silver contracts stable.
   - Cloud Functions are triggered by **GCS finalize** events and must be idempotent.
 - **Marketing**
@@ -96,6 +96,7 @@ alwaysApply: true
   - **Marketing**: aggregated-by-cohort and campaign/channel, no PII.
   - **Board**: high-level KPIs and trends, no row-level data.
   - **Public**: fully anonymized, high-level stats suitable for the website.
+- **Expert rating** from **Session Feedback Form** (Rating, Rating2) is useful on the dashboard; load into `silver_trainings.feedback` with feedback_type = expert and expose via `dash_*` views.
 - Any “top performer reveal” behavior must:
   - Run only through authorized views.
   - Avoid exposing more PII than necessary by default.

@@ -1,0 +1,5 @@
+# Ignore reference pipeline folder (reused patterns only; not part of this repo)
+Household-Data-Analysis-Real-Time-GCP-Pipeline/
+
+# Data assets (sources live here; pipeline reads from GCS/BQ in deployment)
+Datasets/

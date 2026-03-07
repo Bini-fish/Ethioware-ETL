@@ -37,7 +37,7 @@ You can use this file as the master reference for the Ethioware pipeline.
 ### 2.2 Data Source Assumptions
 
 - **Near term**:
-  - Registrations via **Google Forms / Sheets** exports.
+  - Registrations via **Microsoft Form** or **Google Forms / Sheets** exports (programs: Software Engineering, Medicine, Engineering, Law).
   - Quiz & performance via **CSV uploads** (including Khan Academy scores).
   - KA / learning activity via CSV exports.
   - Feedback via Google Forms → CSV/Sheets.
@@ -152,7 +152,7 @@ All other datasets (`silver_*`, `gold_*`, `dash_*`) use only `learner_id` and no
 Examples (exact columns will be refined from the CSVs):
 
 - `silver_trainings.registrations`
-  - From Google Forms/Sheets.
+  - From Microsoft Form or Google Forms/Sheets.
   - Columns:
     - `registration_id`, `form_submission_id`
     - `full_name_raw`, `Email1`
@@ -349,7 +349,7 @@ Exact formulas can be refined, but the structure:
   - Registrations ingestion.
   - Score/KA CSV ingestion (handle commas, duplicates, blanks).
   - Feedback ingestion + conditional NLP sentiment calls.
-- Test using existing **Datasets/Trainings** CSVs as historical backfill.
+- Test using existing **Datasets/trainings/** (and **Datasets/marketing/**) CSVs as historical backfill.
 
 ### Sprint 3 (Weeks 7–9): Trainings – Gold Layer & Scoring
 
