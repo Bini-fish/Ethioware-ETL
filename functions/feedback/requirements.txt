@@ -1,0 +1,6 @@
+# Ethioware – Feedback ingestion (GCS finalize → BigQuery)
+google-cloud-bigquery>=3.0.0
+google-cloud-storage>=2.0.0
+google-cloud-language>=2.0.0
+pandas>=2.0.0
+openpyxl>=3.0.0

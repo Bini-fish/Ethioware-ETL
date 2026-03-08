@@ -26,6 +26,8 @@ ORDER BY tbl;
 
 Or check in the BigQuery Explorer: all of the above tables should be listed under their datasets. Empty tables are fine.
 
+**After Sprint 2:** Also run DDL for and verify `silver_trainings.registrations`, `silver_trainings.scores_raw`, `silver_trainings.ka_activity`, and `silver_trainings.feedback` (see “Running the DDL scripts” below).
+
 ### 2. GCS – buckets and prefixes
 
 In Cloud Shell or `gsutil`:
@@ -134,10 +136,83 @@ Each has `reject_reason`, `source_file`, `ingestion_time`, and optionally `raw_r
 From the repo root, with `bq` CLI and project set:
 
 ```bash
+# Core (pre–Sprint 2)
 bq query --use_legacy_sql=false < bq/sql/silver/ddl_secure_core.sql
 bq query --use_legacy_sql=false < bq/sql/silver/ddl_audit.sql
 bq query --use_legacy_sql=false < bq/sql/silver/ddl_rejects.sql
 bq query --use_legacy_sql=false < bq/sql/gold/ddl_dim_date.sql
+
+# Silver Trainings (Sprint 2)
+bq query --use_legacy_sql=false < bq/sql/silver/ddl_registrations.sql
+bq query --use_legacy_sql=false < bq/sql/silver/ddl_scores_raw.sql
+bq query --use_legacy_sql=false < bq/sql/silver/ddl_ka_activity.sql
+bq query --use_legacy_sql=false < bq/sql/silver/ddl_feedback.sql
 ```
 
 Or run each file in the BigQuery console (copy-paste). Replace `ethioware-etl` in the SQL with your project ID if different.
+
+---
+
+## Deploying Cloud Functions (Sprint 2 – Trainings)
+
+From the repo root, with `gcloud` configured and project set to `ethioware-etl`:
+
+```bash
+# Registrations: forms/*.xlsx
+gcloud functions deploy ethioware-registrations \
+  --gen2 \
+  --runtime=python311 \
+  --region=us-central1 \
+  --source=functions/registrations \
+  --entry-point=main \
+  --trigger-bucket=ethioware-bronze-trainings \
+  --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
+  --trigger-event-filters="bucket=ethioware-bronze-trainings" \
+  --trigger-event-filters="prefix=forms/" \
+  --set-env-vars=GCP_PROJECT=ethioware-etl \
+  --memory=512MB
+
+# Scores: scores/*.csv
+gcloud functions deploy ethioware-scores \
+  --gen2 \
+  --runtime=python311 \
+  --region=us-central1 \
+  --source=functions/scores \
+  --entry-point=main \
+  --trigger-bucket=ethioware-bronze-trainings \
+  --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
+  --trigger-event-filters="bucket=ethioware-bronze-trainings" \
+  --trigger-event-filters="prefix=scores/" \
+  --set-env-vars=GCP_PROJECT=ethioware-etl \
+  --memory=512MB
+
+# KA activity: scores/*.csv with "learner_activity" or "khan" in filename
+gcloud functions deploy ethioware-ka-activity \
+  --gen2 \
+  --runtime=python311 \
+  --region=us-central1 \
+  --source=functions/ka_activity \
+  --entry-point=main \
+  --trigger-bucket=ethioware-bronze-trainings \
+  --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
+  --trigger-event-filters="bucket=ethioware-bronze-trainings" \
+  --trigger-event-filters="prefix=scores/" \
+  --set-env-vars=GCP_PROJECT=ethioware-etl \
+  --memory=512MB
+
+# Feedback: feedback/*
+gcloud functions deploy ethioware-feedback \
+  --gen2 \
+  --runtime=python311 \
+  --region=us-central1 \
+  --source=functions/feedback \
+  --entry-point=main \
+  --trigger-bucket=ethioware-bronze-trainings \
+  --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
+  --trigger-event-filters="bucket=ethioware-bronze-trainings" \
+  --trigger-event-filters="prefix=feedback/" \
+  --set-env-vars=GCP_PROJECT=ethioware-etl \
+  --memory=512MB
+```
+
+**Note:** Scores and KA activity both listen on `scores/`; the functions ignore non-matching files (scores: `.csv` only; ka_activity: filenames containing `learner_activity` or `khan`). For optional sentiment via Cloud Natural Language API on feedback, set `--set-env-vars=GCP_PROJECT=ethioware-etl,USE_NLP_SENTIMENT=true` on the feedback deploy and ensure the function’s service account has `roles/cloudnaturallanguage.viewer` (or equivalent).
