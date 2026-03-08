@@ -153,66 +153,120 @@ Or run each file in the BigQuery console (copy-paste). Replace `ethioware-etl` i
 
 ---
 
-## Deploying Cloud Functions (Sprint 2 – Trainings)
+## Testing ingestion locally (before deploy)
 
-From the repo root, with `gcloud` configured and project set to `ethioware-etl`:
+You can run the same Cloud Function logic on your machine against **local files** (no GCS) and **real BigQuery**. Use this to validate files and logic before deploying.
+
+**1. Install dependencies for the function you’re testing** (from repo root):
 
 ```bash
-# Registrations: forms/*.xlsx
+# For registrations (Excel)
+pip install -r functions/registrations/requirements.txt
+
+# For scores or ka_activity (CSV)
+pip install -r functions/scores/requirements.txt
+# or: pip install -r functions/ka_activity/requirements.txt
+
+# For feedback (Excel + optional NLP)
+pip install -r functions/feedback/requirements.txt
+```
+
+Or install all at once:  
+`pip install -r functions/registrations/requirements.txt -r functions/scores/requirements.txt -r functions/ka_activity/requirements.txt -r functions/feedback/requirements.txt`
+
+**2. Set GCP credentials** (so BigQuery and, if used, GCS work):
+
+```bash
+gcloud auth application-default login
+# Optional: set project
+export GCP_PROJECT=ethioware-etl
+```
+
+**3. Run with a local file** (reads from disk; writes to BigQuery):
+
+```bash
+# From repo root
+python scripts/run_local.py registrations --local path/to/registration.xlsx
+python scripts/run_local.py scores       --local path/to/scores.csv
+python scripts/run_local.py ka_activity   --local path/to/learner_activity.csv
+python scripts/run_local.py feedback      --local path/to/Session_Feedback_Form.xlsx
+```
+
+Use **`--dry-run`** to skip BigQuery writes and only validate read/parse/transform (no GCP credentials needed):
+
+```bash
+python scripts/run_local.py scores --local path/to/scores.csv --dry-run
+```
+
+**4. Or run against a real GCS object**:
+
+```bash
+python scripts/run_local.py registrations --gcs gs://ethioware-bronze-trainings/forms/MyExport.xlsx
+```
+
+The script builds a GCS-like event and calls the function’s `main(event, context)`. When `--local` is used, the event includes `local_path` so the function reads from that file instead of GCS. BigQuery inserts/rejects and `pipeline_run_log` are real. After a run, check `pipeline_run_log` and the Silver tables (or rejects) in BigQuery.
+
+---
+
+## Deploying Cloud Functions (Sprint 2 – Trainings)
+
+**Prerequisites**
+
+- APIs enabled: `run.googleapis.com`, `cloudbuild.googleapis.com`, `artifactregistry.googleapis.com`, `eventarc.googleapis.com`
+- Bucket `ethioware-bronze-trainings` is in multi-region **`us`** (trigger location must match bucket location).
+- GCS → Eventarc: grant **Pub/Sub Publisher** to the GCS service agent on the project:
+  ```bash
+  # Get GCS service agent (format: service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com)
+  gcloud projects add-iam-policy-binding ethioware-etl \
+    --member="serviceAccount:service-PROJECT_NUMBER@gs-project-accounts.iam.gserviceaccount.com" \
+    --role="roles/pubsub.publisher"
+  ```
+- Optional: grant **Storage Object Viewer** on the bucket to the default compute service account so Eventarc can validate the bucket.
+
+From the repo root, with `gcloud` and project `ethioware-etl`:
+
+**Gen2 uses Eventarc:** use `--trigger-location` and `--trigger-event-filters` only (do **not** use `--trigger-bucket`).
+
+```bash
+# Registrations: forms/*.xlsx (function filters by name.startswith("forms/"))
 gcloud functions deploy ethioware-registrations \
-  --gen2 \
-  --runtime=python311 \
-  --region=us-central1 \
-  --source=functions/registrations \
-  --entry-point=main \
-  --trigger-bucket=ethioware-bronze-trainings \
+  --gen2 --runtime=python311 --region=us-central1 \
+  --source=functions/registrations --entry-point=main \
+  --trigger-location=us \
   --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
   --trigger-event-filters="bucket=ethioware-bronze-trainings" \
-  --trigger-event-filters="prefix=forms/" \
   --set-env-vars=GCP_PROJECT=ethioware-etl \
-  --memory=512MB
+  --memory=512MB --project=ethioware-etl
 
 # Scores: scores/*.csv
 gcloud functions deploy ethioware-scores \
-  --gen2 \
-  --runtime=python311 \
-  --region=us-central1 \
-  --source=functions/scores \
-  --entry-point=main \
-  --trigger-bucket=ethioware-bronze-trainings \
+  --gen2 --runtime=python311 --region=us-central1 \
+  --source=functions/scores --entry-point=main \
+  --trigger-location=us \
   --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
   --trigger-event-filters="bucket=ethioware-bronze-trainings" \
-  --trigger-event-filters="prefix=scores/" \
   --set-env-vars=GCP_PROJECT=ethioware-etl \
-  --memory=512MB
+  --memory=512MB --project=ethioware-etl
 
 # KA activity: scores/*.csv with "learner_activity" or "khan" in filename
 gcloud functions deploy ethioware-ka-activity \
-  --gen2 \
-  --runtime=python311 \
-  --region=us-central1 \
-  --source=functions/ka_activity \
-  --entry-point=main \
-  --trigger-bucket=ethioware-bronze-trainings \
+  --gen2 --runtime=python311 --region=us-central1 \
+  --source=functions/ka_activity --entry-point=main \
+  --trigger-location=us \
   --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
   --trigger-event-filters="bucket=ethioware-bronze-trainings" \
-  --trigger-event-filters="prefix=scores/" \
   --set-env-vars=GCP_PROJECT=ethioware-etl \
-  --memory=512MB
+  --memory=512MB --project=ethioware-etl
 
 # Feedback: feedback/*
 gcloud functions deploy ethioware-feedback \
-  --gen2 \
-  --runtime=python311 \
-  --region=us-central1 \
-  --source=functions/feedback \
-  --entry-point=main \
-  --trigger-bucket=ethioware-bronze-trainings \
+  --gen2 --runtime=python311 --region=us-central1 \
+  --source=functions/feedback --entry-point=main \
+  --trigger-location=us \
   --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
   --trigger-event-filters="bucket=ethioware-bronze-trainings" \
-  --trigger-event-filters="prefix=feedback/" \
   --set-env-vars=GCP_PROJECT=ethioware-etl \
-  --memory=512MB
+  --memory=512MB --project=ethioware-etl
 ```
 
-**Note:** Scores and KA activity both listen on `scores/`; the functions ignore non-matching files (scores: `.csv` only; ka_activity: filenames containing `learner_activity` or `khan`). For optional sentiment via Cloud Natural Language API on feedback, set `--set-env-vars=GCP_PROJECT=ethioware-etl,USE_NLP_SENTIMENT=true` on the feedback deploy and ensure the function’s service account has `roles/cloudnaturallanguage.viewer` (or equivalent).
+**Note:** All four triggers listen to the same bucket; each function filters by object name (forms/, scores/, feedback/ or filename). For optional sentiment on feedback, set `--set-env-vars=GCP_PROJECT=ethioware-etl,USE_NLP_SENTIMENT=true` and grant the function’s service account `roles/cloudnaturallanguage.viewer`.

@@ -13,7 +13,14 @@ import pandas as pd
 from google.cloud import bigquery, storage
 
 PROJECT_ID = os.environ.get("GCP_PROJECT", "ethioware-etl")
-BQ = bigquery.Client(project=PROJECT_ID)
+_BQ = None
+
+
+def _get_bq():
+    global _BQ
+    if _BQ is None:
+        _BQ = bigquery.Client(project=PROJECT_ID)
+    return _BQ
 
 
 def _parse_num(s) -> float:
@@ -52,10 +59,15 @@ def main(event, context):
     rejected = 0
     errors = []
 
+    local_path = event.get("local_path") if isinstance(event, dict) else None
     try:
-        client = storage.Client(project=PROJECT_ID)
-        blob = client.bucket(bucket).blob(name)
-        content = blob.download_as_bytes().decode("utf-8", errors="replace")
+        if local_path and os.path.isfile(local_path):
+            with open(local_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        else:
+            client = storage.Client(project=PROJECT_ID)
+            blob = client.bucket(bucket).blob(name)
+            content = blob.download_as_bytes().decode("utf-8", errors="replace")
     except Exception as e:
         _log_run(run_id, source_file, "FAILED", 0, 0, str(e))
         raise
@@ -138,18 +150,27 @@ def main(event, context):
         inserted += 1
 
     if rows:
-        table_ref = f"{PROJECT_ID}.silver_trainings.scores_raw"
-        errs = BQ.insert_rows_json(table_ref, rows)
-        if errs:
-            rejected += len(errs)
-            errors.extend([str(e) for e in errs])
+        if os.environ.get("DRY_RUN"):
+            print(f"[DRY_RUN] Would insert {len(rows)} row(s) into silver_trainings.scores_raw. First row: {rows[0]}")
+        else:
+            BQ = _get_bq()
+            errs = BQ.insert_rows_json(f"{PROJECT_ID}.silver_trainings.scores_raw", rows)
+            if errs:
+                rejected += len(errs)
+                errors.extend([str(e) for e in errs])
 
     status = "FAILED" if errors else ("PARTIAL" if rejected else "SUCCESS")
-    _log_run(run_id, source_file, status, inserted, rejected, "; ".join(errors) if errors else None)
+    if os.environ.get("DRY_RUN"):
+        print(f"[DRY_RUN] status={status} inserted={inserted} rejected={rejected}")
+    else:
+        _log_run(run_id, source_file, status, inserted, rejected, "; ".join(errors) if errors else None)
 
 
 def _reject(source_file: str, reason: str, raw_row: str):
-    BQ.insert_rows_json(f"{PROJECT_ID}.silver_trainings.scores_rejects", [{
+    if os.environ.get("DRY_RUN"):
+        print(f"[DRY_RUN] reject reason={reason}")
+        return
+    _get_bq().insert_rows_json(f"{PROJECT_ID}.silver_trainings.scores_rejects", [{
         "source_file": source_file,
         "ingestion_time": datetime.now(timezone.utc).isoformat(),
         "reject_reason": reason,
@@ -158,7 +179,9 @@ def _reject(source_file: str, reason: str, raw_row: str):
 
 
 def _log_run(run_id: str, source: str, status: str, row_count: int, error_count: int, message: str = None):
-    BQ.insert_rows_json(f"{PROJECT_ID}.silver_trainings.pipeline_run_log", [{
+    if os.environ.get("DRY_RUN"):
+        return
+    _get_bq().insert_rows_json(f"{PROJECT_ID}.silver_trainings.pipeline_run_log", [{
         "run_id": run_id,
         "source": source,
         "status": status,

@@ -28,8 +28,9 @@ def main(event, context):
             except Exception:
                 pass
     lower = name.lower()
-    if not ("learner_activity" in lower or "khan" in lower or "ka_activity" in lower):
-        return
+    if not event.get("local_path"):
+        if not ("learner_activity" in lower or "khan" in lower or "ka_activity" in lower):
+            return
     if not name.endswith(".csv"):
         return
 
@@ -39,10 +40,15 @@ def main(event, context):
     rejected = 0
     errors = []
 
+    local_path = event.get("local_path") if isinstance(event, dict) else None
     try:
-        client = storage.Client(project=PROJECT_ID)
-        blob = client.bucket(bucket).blob(name)
-        content = blob.download_as_bytes().decode("utf-8", errors="replace")
+        if local_path and os.path.isfile(local_path):
+            with open(local_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        else:
+            client = storage.Client(project=PROJECT_ID)
+            blob = client.bucket(bucket).blob(name)
+            content = blob.download_as_bytes().decode("utf-8", errors="replace")
     except Exception as e:
         _log_run(run_id, source_file, "FAILED", 0, 0, str(e))
         raise

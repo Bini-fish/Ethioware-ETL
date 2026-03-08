@@ -107,10 +107,15 @@ def main(event, context):
     rejected = 0
     errors = []
 
+    local_path = event.get("local_path") if isinstance(event, dict) else None
     try:
-        client = storage.Client(project=PROJECT_ID)
-        blob = client.bucket(bucket).blob(name)
-        content = blob.download_as_bytes()
+        if local_path and os.path.isfile(local_path):
+            with open(local_path, "rb") as f:
+                content = f.read()
+        else:
+            client = storage.Client(project=PROJECT_ID)
+            blob = client.bucket(bucket).blob(name)
+            content = blob.download_as_bytes()
     except Exception as e:
         _log_run(run_id, source_file, "FAILED", 0, 0, str(e))
         raise
