@@ -15,20 +15,26 @@ BQ = bigquery.Client(project=PROJECT_ID)
 
 
 def main(event, context):
-    bucket = event.get("bucket") if isinstance(event, dict) else None
-    name = event.get("name", "") if isinstance(event, dict) else ""
-    if not bucket or not name:
-        data = event.get("data") if isinstance(event, dict) else None
-        if data:
-            import base64
-            try:
-                decoded = json.loads(base64.b64decode(data).decode())
-                bucket = decoded.get("bucket")
-                name = decoded.get("name", "")
-            except Exception:
-                pass
-    lower = name.lower()
-    if not event.get("local_path"):
+    bucket = None
+    name = ""
+    if isinstance(event, dict):
+        bucket = event.get("bucket")
+        name = event.get("name") or ""
+        if (not bucket or not name) and event.get("data") is not None:
+            data = event["data"]
+            if isinstance(data, dict):
+                bucket = data.get("bucket") or bucket
+                name = data.get("name") or name
+            else:
+                import base64
+                try:
+                    decoded = json.loads(base64.b64decode(data).decode())
+                    bucket = decoded.get("bucket") or bucket
+                    name = decoded.get("name") or name
+                except Exception:
+                    pass
+    lower = name.lower() if name else ""
+    if not (isinstance(event, dict) and event.get("local_path")):
         if not ("learner_activity" in lower or "khan" in lower or "ka_activity" in lower):
             return
     if not name.endswith(".csv"):

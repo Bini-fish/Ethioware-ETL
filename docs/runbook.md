@@ -270,3 +270,54 @@ gcloud functions deploy ethioware-feedback \
 ```
 
 **Note:** All four triggers listen to the same bucket; each function filters by object name (forms/, scores/, feedback/ or filename). For optional sentiment on feedback, set `--set-env-vars=GCP_PROJECT=ethioware-etl,USE_NLP_SENTIMENT=true` and grant the function’s service account `roles/cloudnaturallanguage.viewer`.
+
+---
+
+## Checking if an upload worked
+
+After uploading a file to Bronze (e.g. `gs://ethioware-bronze-trainings/forms/YourFile.xlsx`), verify the pipeline ran and wrote data.
+
+### 1. Pipeline run log
+
+In BigQuery, run:
+
+```sql
+SELECT run_id, source, status, row_count, error_count, message, timestamp
+FROM `ethioware-etl.silver_trainings.pipeline_run_log`
+ORDER BY timestamp DESC
+LIMIT 10;
+```
+
+Look for a row where:
+- **source** is the GCS path of your file (e.g. `gs://ethioware-bronze-trainings/forms/Enginerring_Basics_Registration...xlsx`).
+- **status** is `SUCCESS` (or `PARTIAL` if some rows were rejected).
+- **row_count** is the number of rows inserted.
+
+### 2. Silver table
+
+- **Registrations:**  
+  `SELECT COUNT(*) FROM \`ethioware-etl.silver_trainings.registrations\`;`  
+  and  
+  `SELECT * FROM \`ethioware-etl.silver_trainings.registrations\` ORDER BY ingestion_time DESC LIMIT 10;`
+- **Scores:**  
+  `SELECT * FROM \`ethioware-etl.silver_trainings.scores_raw\` ORDER BY ingestion_time DESC LIMIT 10;`
+- **Feedback:**  
+  `SELECT * FROM \`ethioware-etl.silver_trainings.feedback\` ORDER BY ingestion_time DESC LIMIT 10;`
+
+### 3. Rejects (if status was PARTIAL or FAILED)
+
+```sql
+SELECT source_file, reject_reason, ingestion_time
+FROM `ethioware-etl.silver_trainings.registrations_rejects`
+ORDER BY ingestion_time DESC
+LIMIT 10;
+```
+
+### 4. Cloud Logging (if no log row or errors)
+
+In Cloud Console: **Logging → Logs Explorer**. Filter by:
+
+- Resource type: **Cloud Run Revision**
+- Resource labels: **service_name** = `ethioware-registrations` (or `ethioware-scores`, etc.)
+
+Search for your filename or errors. If the function was never invoked, check that the object name matches what the function expects (e.g. under `forms/` for registrations).

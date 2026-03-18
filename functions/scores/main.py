@@ -36,18 +36,24 @@ def _parse_num(s) -> float:
 
 
 def main(event, context):
-    bucket = event.get("bucket") if isinstance(event, dict) else None
-    name = event.get("name", "") if isinstance(event, dict) else ""
-    if not bucket or not name:
-        data = event.get("data") if isinstance(event, dict) else None
-        if data:
-            import base64
-            try:
-                decoded = json.loads(base64.b64decode(data).decode())
-                bucket = decoded.get("bucket")
-                name = decoded.get("name", "")
-            except Exception:
-                pass
+    bucket = None
+    name = ""
+    if isinstance(event, dict):
+        bucket = event.get("bucket")
+        name = event.get("name") or ""
+        if (not bucket or not name) and event.get("data") is not None:
+            data = event["data"]
+            if isinstance(data, dict):
+                bucket = data.get("bucket") or bucket
+                name = data.get("name") or name
+            else:
+                import base64
+                try:
+                    decoded = json.loads(base64.b64decode(data).decode())
+                    bucket = decoded.get("bucket") or bucket
+                    name = decoded.get("name") or name
+                except Exception:
+                    pass
     if not name or not name.startswith("scores/"):
         return
     if not name.endswith(".csv"):

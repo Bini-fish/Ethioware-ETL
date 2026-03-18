@@ -4,6 +4,7 @@ Trigger: GCS finalize on ethioware-bronze-trainings/feedback/*
 Reads Session Feedback Form (Excel) or mentor/trainee CSV/Excel; sets feedback_type from filename.
 Optional Cloud Natural Language API for sentiment when not present in source.
 """
+import io
 import json
 import os
 from datetime import datetime, timezone
@@ -19,18 +20,24 @@ USE_NLP_SENTIMENT = os.environ.get("USE_NLP_SENTIMENT", "false").lower() == "tru
 
 
 def main(event, context):
-    bucket = event.get("bucket") if isinstance(event, dict) else None
-    name = event.get("name", "") if isinstance(event, dict) else ""
-    if not bucket or not name:
-        data = event.get("data") if isinstance(event, dict) else None
-        if data:
-            import base64
-            try:
-                decoded = json.loads(base64.b64decode(data).decode())
-                bucket = decoded.get("bucket")
-                name = decoded.get("name", "")
-            except Exception:
-                pass
+    bucket = None
+    name = ""
+    if isinstance(event, dict):
+        bucket = event.get("bucket")
+        name = event.get("name") or ""
+        if (not bucket or not name) and event.get("data") is not None:
+            data = event["data"]
+            if isinstance(data, dict):
+                bucket = data.get("bucket") or bucket
+                name = data.get("name") or name
+            else:
+                import base64
+                try:
+                    decoded = json.loads(base64.b64decode(data).decode())
+                    bucket = decoded.get("bucket") or bucket
+                    name = decoded.get("name") or name
+                except Exception:
+                    pass
     if not name or not name.startswith("feedback/"):
         return
     base = os.path.basename(name).lower()
@@ -68,9 +75,9 @@ def main(event, context):
 
     try:
         if name.endswith(".csv"):
-            df = pd.read_csv(pd.io.common.BytesIO(content))
+            df = pd.read_csv(io.BytesIO(content))
         else:
-            df = pd.read_excel(content, engine="openpyxl")
+            df = pd.read_excel(io.BytesIO(content), engine="openpyxl")
     except Exception as e:
         _log_run(run_id, source_file, "FAILED", 0, 0, f"parse_error: {e}")
         _reject(source_file, "parse_error", json.dumps({"error": str(e)}))
