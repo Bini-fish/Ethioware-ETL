@@ -12,6 +12,7 @@ from google.cloud import bigquery, storage
 
 PROJECT_ID = os.environ.get("GCP_PROJECT", "ethioware-etl")
 BQ = bigquery.Client(project=PROJECT_ID)
+KA_FILENAME_HINTS = ("learner_activity", "khan", "ka_activity", "all_assignments")
 
 
 def main(event, context):
@@ -35,7 +36,7 @@ def main(event, context):
                     pass
     lower = name.lower() if name else ""
     if not (isinstance(event, dict) and event.get("local_path")):
-        if not ("learner_activity" in lower or "khan" in lower or "ka_activity" in lower):
+        if not any(hint in lower for hint in KA_FILENAME_HINTS):
             return
     if not name.endswith(".csv"):
         return
@@ -67,6 +68,19 @@ def main(event, context):
         return
 
     df.columns = [str(c).strip() for c in df.columns]
+    lower_cols = {c.lower() for c in df.columns}
+    ka_schema_hints = {
+        "student",
+        "total learning minutes",
+        "skills worked on",
+        "attempted",
+        "familiar",
+        "proficient",
+        "mastered",
+    }
+    if not lower_cols.intersection(ka_schema_hints):
+        _log_run(run_id, source_file, "SKIPPED", 0, 0, "unsupported_ka_activity_schema")
+        return
 
     def col(row_dict, *candidates):
         for c in candidates:

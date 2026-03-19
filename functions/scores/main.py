@@ -14,6 +14,7 @@ from google.cloud import bigquery, storage
 
 PROJECT_ID = os.environ.get("GCP_PROJECT", "ethioware-etl")
 _BQ = None
+KA_FILENAME_HINTS = ("learner_activity", "khan", "ka_activity", "all_assignments")
 
 
 def _get_bq():
@@ -33,6 +34,13 @@ def _parse_num(s) -> float:
         return float(s)
     except ValueError:
         return None
+
+
+def _has_score_schema(columns: list[str]) -> bool:
+    lower = {str(c).strip().lower() for c in columns}
+    has_quiz_score = "quiz score" in lower
+    has_context = ("cohort" in lower) or ("quiz percentage" in lower)
+    return has_quiz_score and has_context
 
 
 def main(event, context):
@@ -64,6 +72,16 @@ def main(event, context):
     inserted = 0
     rejected = 0
     errors = []
+    lower_name = name.lower()
+
+    # Route KA-style files away from scores ingestion to avoid reject noise.
+    if any(hint in lower_name for hint in KA_FILENAME_HINTS):
+        msg = "skipped_non_scores_file_routed_to_ka_activity"
+        if os.environ.get("DRY_RUN"):
+            print(f"[DRY_RUN] {msg}: {source_file}")
+        else:
+            _log_run(run_id, source_file, "SKIPPED", 0, 0, msg)
+        return
 
     local_path = event.get("local_path") if isinstance(event, dict) else None
     try:
@@ -86,6 +104,14 @@ def main(event, context):
         return
 
     df.columns = [str(c).strip() for c in df.columns]
+    if not _has_score_schema(df.columns):
+        msg = "unsupported_scores_schema"
+        if os.environ.get("DRY_RUN"):
+            print(f"[DRY_RUN] {msg}: {source_file}")
+        else:
+            _log_run(run_id, source_file, "SKIPPED", 0, 0, msg)
+        return
+
     rows = []
     seen_hash = set()
 

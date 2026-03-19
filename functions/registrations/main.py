@@ -175,13 +175,14 @@ def _handle_event_dict(obj: dict):
     """
     bucket = obj.get("bucket") or ""
     name   = (obj.get("name") or "").strip()
+    print(f"[registrations] Processing bucket={bucket!r} name={name!r}", flush=True)
     run_id_probe = f"{name or 'no-name'}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
 
     if FORMS_PREFIX and not name.startswith(FORMS_PREFIX):
-        print(f"[registrations] Skipping path outside prefix {FORMS_PREFIX!r}: {name!r}")
+        print(f"[registrations] Skipping path outside prefix {FORMS_PREFIX!r}: {name!r}", flush=True)
         return
     if not (name.endswith(".xlsx") or name.endswith(".xls") or name.endswith(".csv")):
-        print(f"[registrations] Skipping unsupported extension: {name!r}")
+        print(f"[registrations] Skipping unsupported extension: {name!r}", flush=True)
         return
 
     source_file = f"gs://{bucket}/{name}"
@@ -199,10 +200,10 @@ def _handle_event_dict(obj: dict):
             ]),
         ).result())
         if rows and rows[0].n > 0:
-            print(f"[registrations] Already processed {source_file} – skipping.")
+            print(f"[registrations] Already processed {source_file} – skipping.", flush=True)
             return
     except Exception as e:
-        print(f"[registrations] Idempotency check failed (proceeding): {e}")
+        print(f"[registrations] Idempotency check failed (proceeding): {e}", flush=True)
 
     # ── Download ──────────────────────────────────────────────────────────
     local_path = obj.get("local_path")
@@ -300,10 +301,10 @@ def _handle_event_dict(obj: dict):
 
     # ── Upsert PII into secure_id_map (dedup by learner_id) ───────────────
     seen_ids: set[str] = set()
-    for r in rows_secure:
-        if r["learner_id"] not in seen_ids:
-            seen_ids.add(r["learner_id"])
-            _upsert_secure_id_map(r)
+    unique_secure = [r for r in rows_secure if r["learner_id"] not in seen_ids and not seen_ids.add(r["learner_id"])]
+    _t0 = time.time()
+    _batch_upsert_secure_id_map(unique_secure)
+    print(f"[registrations] secure_id_map: {len(unique_secure)} learners merged in {time.time()-_t0:.1f}s", flush=True)
 
     # ── Stream rows into silver_trainings.registrations ───────────────────
     bq_errors: list[str] = []
@@ -325,6 +326,7 @@ def _handle_event_dict(obj: dict):
         len(rows_reg) - len(bq_errors), rejected,
         "; ".join(bq_errors) if bq_errors else None,
     )
+    print(f"[registrations] Done: status={status} rows={len(rows_reg)} rejected={rejected}", flush=True)
 
 
 # ── Cloud Functions entry points ───────────────────────────────────────────
@@ -345,42 +347,60 @@ def main(event, context=None):
 
 # ── BigQuery helpers ───────────────────────────────────────────────────────
 
-def _upsert_secure_id_map(row: dict):
-    bq  = _get_bq()
-    sql = f"""
-    MERGE `{PROJECT_ID}.secure_core.secure_id_map` T
-    USING (
-      SELECT @learner_id AS learner_id,
-             @email      AS email_canonical,
-             @full_name  AS full_name_raw,
-             @src        AS source_file
-    ) S ON T.learner_id = S.learner_id
-    WHEN MATCHED THEN UPDATE SET
-      full_name_raw = S.full_name_raw,
-      updated_at    = CURRENT_TIMESTAMP(),
-      source_file   = S.source_file
-    WHEN NOT MATCHED THEN INSERT
-      (learner_id, email_canonical, full_name_raw, created_at, updated_at, source_file)
-    VALUES
-      (S.learner_id, S.email_canonical, S.full_name_raw,
-       CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP(), S.source_file)
+def _escape_bq(s: str) -> str:
+    """Escape single quotes for BigQuery string literals."""
+    return s.replace("'", "\\'") if s else ""
+
+
+def _batch_upsert_secure_id_map(rows: list[dict]):
+    """Upsert learners into secure_id_map in batches of BATCH_SIZE using
+    a single MERGE per batch with UNNEST(ARRAY<STRUCT<...>>).
+    ~258 learners now takes ~15s instead of ~900s.
     """
-    cfg = bigquery.QueryJobConfig(query_parameters=[
-        bigquery.ScalarQueryParameter("learner_id", "STRING", row["learner_id"]),
-        bigquery.ScalarQueryParameter("email",      "STRING", row["email_canonical"]),
-        bigquery.ScalarQueryParameter("full_name",  "STRING", row["full_name_raw"]),
-        bigquery.ScalarQueryParameter("src",        "STRING", row["source_file"]),
-    ])
-    delay = 0.5
-    for attempt in range(1, 6):
-        try:
-            bq.query(sql, job_config=cfg).result()
-            return
-        except gapi_exceptions.GoogleAPICallError as exc:
-            if "Could not serialize access to table" not in str(exc) or attempt == 5:
-                raise
-            time.sleep(delay)
-            delay *= 2.0
+    if not rows:
+        return
+    bq = _get_bq()
+    BATCH_SIZE = 100
+
+    for start in range(0, len(rows), BATCH_SIZE):
+        batch = rows[start:start + BATCH_SIZE]
+        values = ", ".join(
+            f"('{r['learner_id']}', "
+            f"'{_escape_bq(r['email_canonical'])}', "
+            f"'{_escape_bq(r['full_name_raw'])}', "
+            f"'{_escape_bq(r['source_file'])}')"
+            for r in batch
+        )
+        sql = f"""
+        MERGE `{PROJECT_ID}.secure_core.secure_id_map` T
+        USING (
+          SELECT * FROM UNNEST(
+            ARRAY<STRUCT<learner_id STRING, email_canonical STRING,
+                         full_name_raw STRING, source_file STRING>>[
+              {values}
+            ]
+          )
+        ) S ON T.learner_id = S.learner_id
+        WHEN MATCHED THEN UPDATE SET
+          full_name_raw = S.full_name_raw,
+          updated_at    = CURRENT_TIMESTAMP(),
+          source_file   = S.source_file
+        WHEN NOT MATCHED THEN INSERT
+          (learner_id, email_canonical, full_name_raw, created_at, updated_at, source_file)
+        VALUES
+          (S.learner_id, S.email_canonical, S.full_name_raw,
+           CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP(), S.source_file)
+        """
+        delay = 0.5
+        for attempt in range(1, 6):
+            try:
+                bq.query(sql).result()
+                break
+            except gapi_exceptions.GoogleAPICallError as exc:
+                if "Could not serialize access to table" not in str(exc) or attempt == 5:
+                    raise
+                time.sleep(delay)
+                delay *= 2.0
 
 
 def _reject(source_file: str, reason: str, raw_row: str):

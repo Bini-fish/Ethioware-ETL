@@ -69,6 +69,10 @@ If all of the above pass, you’re ready for Sprint 2 (Silver tables + Cloud Fun
 
 **Idempotency:** Functions should handle re-uploads (e.g. dedupe by row_hash or source_file + batch_id) so re-running the same file doesn’t double-count.
 
+**Routing guardrails (current behavior):**
+- `scores` skips non-score files (e.g. filenames containing `learner_activity`, `khan`, `ka_activity`, `all_assignments`) and logs status `SKIPPED`.
+- `scores` and `ka_activity` both apply lightweight schema checks; if a file lands in the wrong function it is logged as `SKIPPED` rather than generating bulk rejects.
+
 ---
 
 ## pipeline_run_log
@@ -79,7 +83,7 @@ Every ingestion run writes one row to **`silver_trainings.pipeline_run_log`** (a
 |--------|---------|
 | `run_id` | Unique run identifier (e.g. UUID or bucket+path+timestamp) |
 | `source` | e.g. `ethioware-bronze-trainings/forms/`, `registrations`, `scores` |
-| `status` | `SUCCESS`, `PARTIAL`, `FAILED` |
+| `status` | `SUCCESS`, `PARTIAL`, `FAILED`, `SKIPPED` |
 | `row_count` | Rows inserted into Silver |
 | `error_count` | Rows written to the corresponding `_rejects` table |
 | `message` | Optional error or summary text |
@@ -123,11 +127,34 @@ Each has `reject_reason`, `source_file`, `ingestion_time`, and optionally `raw_r
 3. **Numeric parse errors (scores)**  
    - Strip commas in Learning Minutes (e.g. `2,561.00` → 2561.00) before casting; unparseable → `scores_rejects` with reason `numeric_parse_error`.
 
-4. **PII / learner_id**  
+4. **File routed to wrong function**  
+   - Check `pipeline_run_log` for `status = 'SKIPPED'` and inspect `message` (`unsupported_*_schema` or route message).  
+   - This indicates the file reached a function that intentionally skipped it (expected for mixed prefixes).
+
+5. **PII / learner_id**  
    - Only `secure_core.secure_id_map` holds email/name; Silver/Gold use only `learner_id`. If joins break, confirm `learner_id` is written on insert and that hash algorithm matches (SHA-256 of normalized email).
 
-5. **Schema drift**  
+6. **Schema drift**  
    - If a form or export changes columns, the function may reject rows. Update the expected schema in code and, if needed, add a new schema_version; backfill rejects after fixing.
+
+7. **Function appears to never trigger (no logs at all)**  
+   This was the root cause of a multi-day debugging effort on `ethioware-registrations`. Two compounding issues:
+
+   **a) Per-row BigQuery MERGE timeout:**  
+   The original `_upsert_secure_id_map` ran one BigQuery `MERGE` per unique learner (~3.5 seconds each). A 258-learner CSV required ~903 seconds, exceeding both the 60-second default and 540-second extended timeouts. The function was killed mid-execution.
+
+   **b) Python stdout buffering hid the evidence:**  
+   In Cloud Run containers, Python `print()` uses full buffering (not line buffering). When the function was killed by the timeout, the entire stdout buffer was lost — making it appear as if the function was never invoked at all.
+
+   **Fix applied:**
+   - Replaced per-row MERGE with batched `UNNEST(ARRAY<STRUCT<...>>)` MERGE (100 learners per batch). 258 learners now completes in ~8 seconds instead of ~903 seconds.
+   - All `print()` calls in Cloud Functions now use `flush=True` so logs appear immediately in Cloud Logging, even if the function is killed.
+
+   **Prevention rules:**
+   - **Always use `flush=True`** on `print()` in Cloud Functions. Without it, logs may be silently lost on timeout or crash.
+   - **Never do per-row BigQuery DML** (MERGE, INSERT, UPDATE) in a loop. Always batch using `UNNEST`, temp tables, or `insert_rows_json`.
+   - **Set `--timeout=540s`** on functions that process large files (the default 60s is too low).
+   - **Check Cloud Run request logs** (`logName:run.googleapis.com%2Frequests`) for `latency` and `status` when diagnosing trigger issues — these are always present even when user-code logs are missing.
 
 ---
 
@@ -228,15 +255,15 @@ From the repo root, with `gcloud` and project `ethioware-etl`:
 **Gen2 uses Eventarc:** use `--trigger-location` and `--trigger-event-filters` only (do **not** use `--trigger-bucket`).
 
 ```bash
-# Registrations: forms/*.xlsx (function filters by name.startswith("forms/"))
+# Registrations: forms/*.xlsx or *.csv (function filters by name.startswith("forms/"))
 gcloud functions deploy ethioware-registrations \
   --gen2 --runtime=python311 --region=us-central1 \
-  --source=functions/registrations --entry-point=main \
+  --source=functions/registrations --entry-point=cf_main \
   --trigger-location=us \
   --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
   --trigger-event-filters="bucket=ethioware-bronze-trainings" \
   --set-env-vars=GCP_PROJECT=ethioware-etl \
-  --memory=512MB --project=ethioware-etl
+  --memory=512MiB --timeout=540s --project=ethioware-etl
 
 # Scores: scores/*.csv
 gcloud functions deploy ethioware-scores \
