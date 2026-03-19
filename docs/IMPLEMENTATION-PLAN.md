@@ -12,14 +12,16 @@ This document maps **Ethioware-ETL-Plan.md** to concrete implementation steps ba
 |------|--------|
 | `README.md` | Exists – describes planned structure |
 | `Ethioware-ETL-Plan.md` | Exists – master blueprint |
-| `.gitignore` | Exists – ignores `Household-Data-Analysis-Real-Time-GCP-Pipeline/` |
+| `.gitignore` | Exists – ignores `Household-Data-Analysis-Real-Time-GCP-Pipeline/` and `Datasets/` |
 | `.cursor/rules/`, `.cursor/skills/` | Exist – pipeline rules and ethioware-etl skill |
-| `functions/` | **Missing** – to create |
-| `bq/` | **Missing** – to create |
-| `docs/` | **Missing** – to create |
+| `functions/` | Exists – registrations, scores, ka_activity, feedback (Sprint 2 complete) |
+| `bq/sql/silver/` | Exists – DDL for secure_core, audit, rejects, registrations, scores_raw, ka_activity, feedback |
+| `bq/sql/gold/` | Exists – ddl_dim_date.sql; remaining Gold dims/facts pending (Sprint 3) |
+| `docs/` | Exists – architecture, runbook, schema, iam, implementation plan, forms references, test checklist |
+| `scripts/` | Exists – run_local.py (local function testing), run_silver_ddl.ps1 (DDL runner) |
 | `Datasets/` | Exists – **gitignored**; reference CSVs for schema design and backfill. Layout: **trainings/** (registration, feedback, scores, ka_activity, cohort, legacy), **marketing/** (linkedin, youtube, web_analytics), **reference/**, **archive/** (old structure). |
 
-No Python or SQL files exist yet. All pipeline code and BigQuery artifacts need to be created.
+Sprint 1 and Sprint 2 are complete. Sprint 3 (Gold layer) is in progress.
 
 ### 1.2 Datasets scanned (source → Silver/Gold mapping)
 

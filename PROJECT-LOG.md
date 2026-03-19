@@ -27,7 +27,7 @@ Track what was done in this project so the same approach can be reused elsewhere
 - [x] **Repo override** – Local state committed and force-pushed to `origin/master`; remote reflects current files and structure.
 - [x] **Cursor rules** – `.cursor/rules/` with Medallion, identity, PII, scoring rules.
 - [x] **Cursor skill** – `.cursor/skills/SKILL.md` for Ethioware ETL context so the agent follows the same patterns.
-- [ ] **GCP project and region** – Set project (e.g. Ethioware-ETL), region (e.g. me-central1), document fallbacks.
+- [x] **GCP project and region** – Project `ethioware-etl`, BigQuery in `us-central1`, GCS in US multi-region. Documented in `docs/architecture.md`.
 - [x] **IAM** – Custom roles (Ethioware Data Engineer, Education Admin, BI/Marketing); project-level for Data Engineer, dataset-level for Education Admin and BI/Marketing. No public access. See **docs/iam.md** for role-to-dataset mapping.
 
 **Reuse in next project:** Add rules and a skill for the new domain; keep .gitignore and docs in sync with actual sources.
@@ -77,21 +77,33 @@ Track what was done in this project so the same approach can be reused elsewhere
 
 ---
 
-## 7. Next steps (implementation)
+## 7. Sprint progress
 
-**Immediate (Sprint 1 – Foundation)**  
-1. **GCP** – Create or select project (e.g. `Ethioware-ETL`), set region (e.g. `me-central1`), document in `docs/architecture.md`.  
-2. **Bronze** – Create GCS buckets: `ethioware-bronze-trainings` (prefixes: forms/, scores/, feedback/), `ethioware-bronze-marketing` (youtube/, linkedin/), `ethioware-bronze-web` (analytics/).  
-3. **BigQuery** – Create datasets: `secure_core`, `silver_trainings`, `silver_marketing`, `silver_web`, `gold_*`, `dash_*` (or single `dash`).  
-4. **Identity & audit** – DDL for `secure_core.secure_id_map`, `pipeline_run_log`, and Silver rejects tables; add `dim_date`.  
-5. **Repo skeleton** – Add `bq/sql/silver/`, `bq/sql/gold/` with DDL file placeholders; add `docs/architecture.md` and `docs/runbook.md`.  
-6. **IAM** – Define roles (Education Admin, Data Engineer, BI/Marketing) and apply least privilege per dataset.
+**Sprint 1 – Foundation (DONE)**
+1. [x] GCP project `ethioware-etl`, BigQuery `us-central1`, GCS US multi-region.
+2. [x] GCS buckets: `ethioware-bronze-trainings` (forms/, scores/, feedback/), `ethioware-bronze-marketing`, `ethioware-bronze-web`.
+3. [x] BigQuery datasets: `secure_core`, `silver_trainings`, `silver_marketing`, `silver_web`, `gold_trainings`, `gold_marketing`, `gold_web`, `dash_admin`, `dash_marketing`, `dash_board`, `dash_public`.
+4. [x] DDL: `secure_core.secure_id_map`, `pipeline_run_log`, rejects tables, `dim_date`.
+5. [x] Repo skeleton: `bq/sql/`, `docs/`, `functions/`, `scripts/`.
+6. [x] IAM: custom roles (Data Engineer, Education Admin, BI/Marketing).
 
-**Then (Sprint 2+)**  
-7. Answer follow-up questions in `GOOGLE-FORMS-FORMATS.md` (or document “ETL decides” for GPA, dedupe, timezone).  
-8. Silver DDL and Cloud Functions: registrations → scores → ka_activity → feedback (see `docs/IMPLEMENTATION-PLAN.md` §2).  
-9. Test with `Datasets/trainings/` and `Datasets/marketing/` files; backfill to Silver.  
-10. Gold layer (dim/fact/views) and scoring views; then marketing/web and dashboards.
+**Sprint 2 – Silver Trainings (DONE)**
+7. [x] Silver DDL: registrations, scores_raw, ka_activity, feedback.
+8. [x] Cloud Functions (Gen2): registrations (cf_main), scores, ka_activity, feedback — all deployed and tested.
+9. [x] Test suite: 7/8 PASS, 1 INCONCLUSIVE (November scores). See `docs/SPRINT2-UPLOAD-TEST-CHECKLIST.md`.
+10. [x] Key fix: batched secure_id_map MERGE (117x faster); flush=True on all prints.
+
+**Sprint 3 – Gold Trainings (IN PROGRESS)**
+11. [ ] Gold dimension DDLs: dim_learner, dim_cohort, dim_field, dim_institution, dim_learning_provider.
+12. [ ] bridge_learner_field for multi-field enrollment.
+13. [ ] Backfill dimensions from Silver.
+14. [ ] Fact tables: fact_scores, fact_engagement, fact_feedback.
+15. [ ] Scoring views: v_scores_v1 (relative %, engagement composite).
+
+**Sprint 4 – Marketing, Web, Dashboards (PENDING)**
+16. [ ] Marketing Silver/Gold (YouTube, LinkedIn, web).
+17. [ ] Dashboard views (dash_admin, dash_marketing, dash_board, dash_public).
+18. [ ] Looker Studio dashboards.
 
 ---
 

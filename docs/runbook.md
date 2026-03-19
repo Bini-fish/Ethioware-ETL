@@ -268,12 +268,12 @@ gcloud functions deploy ethioware-registrations \
 # Scores: scores/*.csv
 gcloud functions deploy ethioware-scores \
   --gen2 --runtime=python311 --region=us-central1 \
-  --source=functions/scores --entry-point=main \
+  --source=functions/scores --entry-point=cf_main \
   --trigger-location=us \
   --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
   --trigger-event-filters="bucket=ethioware-bronze-trainings" \
   --set-env-vars=GCP_PROJECT=ethioware-etl \
-  --memory=512MB --project=ethioware-etl
+  --memory=512MiB --timeout=540s --project=ethioware-etl
 
 # KA activity: scores/*.csv with "learner_activity" or "khan" in filename
 gcloud functions deploy ethioware-ka-activity \
@@ -348,3 +348,89 @@ In Cloud Console: **Logging → Logs Explorer**. Filter by:
 - Resource labels: **service_name** = `ethioware-registrations` (or `ethioware-scores`, etc.)
 
 Search for your filename or errors. If the function was never invoked, check that the object name matches what the function expects (e.g. under `forms/` for registrations).
+
+---
+
+## Gold layer – DDL and backfill (Sprint 3)
+
+### Running Gold DDLs
+
+Create all Gold dimension and bridge tables. Run in order (dims before bridge):
+
+```bash
+# From repo root, using bq CLI
+bq query --use_legacy_sql=false --project_id=ethioware-etl < bq/sql/gold/ddl_dim_date.sql
+bq query --use_legacy_sql=false --project_id=ethioware-etl < bq/sql/gold/ddl_dim_learner.sql
+bq query --use_legacy_sql=false --project_id=ethioware-etl < bq/sql/gold/ddl_dim_cohort.sql
+bq query --use_legacy_sql=false --project_id=ethioware-etl < bq/sql/gold/ddl_dim_field.sql
+bq query --use_legacy_sql=false --project_id=ethioware-etl < bq/sql/gold/ddl_dim_institution.sql
+bq query --use_legacy_sql=false --project_id=ethioware-etl < bq/sql/gold/ddl_dim_provider.sql
+bq query --use_legacy_sql=false --project_id=ethioware-etl < bq/sql/gold/ddl_bridge_learner_field.sql
+```
+
+Or on Windows PowerShell, use the helper script:
+
+```powershell
+.\scripts\run_gold_ddl.ps1
+```
+
+The script also runs the backfill automatically after DDL creation.
+
+### Backfill dimensions from Silver
+
+`bq/sql/gold/backfill_dimensions.sql` contains 7 idempotent MERGE statements that populate all dims and the bridge from Silver data. It is safe to re-run (uses MERGE, not INSERT).
+
+To run manually in BigQuery Web UI: open the file, copy each MERGE statement, and run them one at a time in order (1 through 7).
+
+To run via `bq` CLI on bash:
+
+```bash
+bq query --use_legacy_sql=false --project_id=ethioware-etl < bq/sql/gold/backfill_dimensions.sql
+```
+
+**Note:** The backfill file contains multiple statements separated by semicolons. The `bq` CLI runs them as a single script. If any statement fails, check the error and run the remaining statements individually.
+
+### Verifying Gold layer population
+
+After running the backfill, confirm data landed:
+
+```sql
+-- Row counts for all Gold tables
+SELECT 'dim_date' AS tbl, COUNT(*) AS cnt FROM `ethioware-etl.gold_trainings.dim_date`
+UNION ALL SELECT 'dim_learner', COUNT(*) FROM `ethioware-etl.gold_trainings.dim_learner`
+UNION ALL SELECT 'dim_cohort', COUNT(*) FROM `ethioware-etl.gold_trainings.dim_cohort`
+UNION ALL SELECT 'dim_field', COUNT(*) FROM `ethioware-etl.gold_trainings.dim_field`
+UNION ALL SELECT 'dim_institution', COUNT(*) FROM `ethioware-etl.gold_trainings.dim_institution`
+UNION ALL SELECT 'dim_learning_provider', COUNT(*) FROM `ethioware-etl.gold_trainings.dim_learning_provider`
+UNION ALL SELECT 'bridge_learner_field', COUNT(*) FROM `ethioware-etl.gold_trainings.bridge_learner_field`
+ORDER BY tbl;
+```
+
+Expected minimums after initial backfill:
+- `dim_date`: ~2000+ rows (dates from 2020 to today)
+- `dim_field`: 5 rows (4 programs + Other)
+- `dim_learning_provider`: 1 row (Khan Academy)
+- `dim_cohort`: 1+ rows (one per YYYY-MM cohort in registrations)
+- `dim_institution`: varies (distinct highschool names)
+- `dim_learner`: varies (distinct learner_ids from registrations)
+- `bridge_learner_field`: varies (one per learner-field-cohort combination)
+
+Spot-check dim_field:
+
+```sql
+SELECT * FROM `ethioware-etl.gold_trainings.dim_field` ORDER BY field_id;
+```
+
+Spot-check bridge joins:
+
+```sql
+SELECT
+  b.learner_id,
+  f.field_name,
+  c.cohort_name,
+  b.source
+FROM `ethioware-etl.gold_trainings.bridge_learner_field` b
+JOIN `ethioware-etl.gold_trainings.dim_field` f ON b.field_id = f.field_id
+JOIN `ethioware-etl.gold_trainings.dim_cohort` c ON b.cohort_id = c.cohort_id
+LIMIT 20;
+```

@@ -4,9 +4,13 @@ $project = "ethioware-etl"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $scriptDir
 $files = @(
+    "bq/sql/silver/ddl_secure_core.sql",
     "bq/sql/silver/ddl_audit.sql",
     "bq/sql/silver/ddl_rejects.sql",
-    "bq/sql/silver/ddl_scores_raw.sql"
+    "bq/sql/silver/ddl_registrations.sql",
+    "bq/sql/silver/ddl_scores_raw.sql",
+    "bq/sql/silver/ddl_ka_activity.sql",
+    "bq/sql/silver/ddl_feedback.sql"
 )
 Push-Location $root
 foreach ($f in $files) {
@@ -17,4 +21,4 @@ foreach ($f in $files) {
     if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
 }
 Pop-Location
-Write-Host "Done. Tables: pipeline_run_log, *_rejects, scores_raw."
+Write-Host "Done. All Silver tables created/verified."
